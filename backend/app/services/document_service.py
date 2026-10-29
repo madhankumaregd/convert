@@ -1,8 +1,13 @@
 """
 Document conversion and compression service.
 
-Supports conversions between PDF, DOCX, TXT, XLSX, and CSV using
-PyPDF2, python-docx, openpyxl, and the standard-library csv module.
+Uses LibreOffice headless for high-fidelity DOCX ↔ PDF conversions
+(preserving fonts, images, tables, colors, layout — like iLovePDF).
+
+Falls back to pure-Python text-based conversion when LibreOffice is
+not available on the system.
+
+Supports: PDF, DOCX, TXT, XLSX, CSV
 """
 
 from __future__ import annotations
@@ -10,6 +15,9 @@ from __future__ import annotations
 import csv
 import io
 import os
+import shutil
+import subprocess
+import tempfile
 import zipfile
 
 from PyPDF2 import PdfReader, PdfWriter
@@ -18,7 +26,128 @@ from openpyxl import Workbook, load_workbook
 
 
 # ======================================================================
-# Internal helpers
+# LibreOffice detection
+# ======================================================================
+
+def _find_libreoffice() -> str | None:
+    """Locate the LibreOffice binary on the system."""
+    # Common paths across different OS/containers
+    candidates = [
+        "libreoffice",
+        "soffice",
+        "/usr/bin/libreoffice",
+        "/usr/bin/soffice",
+        "/usr/lib/libreoffice/program/soffice",
+        "/opt/libreoffice/program/soffice",
+    ]
+    for cmd in candidates:
+        if shutil.which(cmd):
+            return cmd
+    return None
+
+
+_LIBREOFFICE_BIN = _find_libreoffice()
+
+
+def _is_libreoffice_available() -> bool:
+    """Check if LibreOffice is installed and callable."""
+    return _LIBREOFFICE_BIN is not None
+
+
+# ======================================================================
+# LibreOffice-based conversion (high fidelity)
+# ======================================================================
+
+def _convert_with_libreoffice(
+    input_path: str,
+    output_path: str,
+    target_format: str,
+) -> str:
+    """Convert a document using LibreOffice headless mode.
+
+    This preserves all formatting, images, tables, fonts, colors,
+    headers, footers — essentially a pixel-perfect conversion.
+
+    Supported target formats: pdf, docx, doc, txt, html, xlsx, csv, odt
+    """
+    assert _LIBREOFFICE_BIN is not None, "LibreOffice not found"
+
+    # LibreOffice writes the output to --outdir with the same base name
+    # but a different extension. We use a temp directory to avoid conflicts.
+    with tempfile.TemporaryDirectory(prefix="lo_convert_") as tmp_dir:
+        # Map target extensions to LibreOffice filter names
+        format_map = {
+            "pdf": "pdf",
+            "docx": "docx",
+            "doc": "doc",
+            "txt": "txt",
+            "html": "html",
+            "xlsx": "xlsx",
+            "csv": "csv",
+            "odt": "odt",
+        }
+
+        lo_format = format_map.get(target_format.lower(), target_format.lower())
+
+        # Build the LibreOffice command
+        cmd = [
+            _LIBREOFFICE_BIN,
+            "--headless",
+            "--norestore",
+            "--nofirststartwizard",
+            "--nologo",
+            "--convert-to", lo_format,
+            "--outdir", tmp_dir,
+            input_path,
+        ]
+
+        # Set environment to avoid profile lock issues in concurrent usage
+        env = os.environ.copy()
+        env["HOME"] = tmp_dir  # Avoid profile locks
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,  # 2-minute timeout
+            env=env,
+        )
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(
+                f"LibreOffice conversion failed (exit {result.returncode}): {stderr}"
+            )
+
+        # Find the output file in tmp_dir
+        input_basename = os.path.splitext(os.path.basename(input_path))[0]
+        expected_name = f"{input_basename}.{lo_format}"
+        lo_output = os.path.join(tmp_dir, expected_name)
+
+        if not os.path.exists(lo_output):
+            # Sometimes LibreOffice changes the extension case or format
+            # Search for any file in the output directory
+            files = os.listdir(tmp_dir)
+            matching = [
+                f for f in files
+                if f.startswith(input_basename) and not f.endswith(".tmp")
+            ]
+            if matching:
+                lo_output = os.path.join(tmp_dir, matching[0])
+            else:
+                raise RuntimeError(
+                    f"LibreOffice did not produce output. "
+                    f"Expected: {expected_name}, Found: {files}"
+                )
+
+        # Copy to final output path
+        shutil.copy2(lo_output, output_path)
+
+    return output_path
+
+
+# ======================================================================
+# Pure-Python fallback helpers (text-based, lower quality)
 # ======================================================================
 
 def _extract_text_from_pdf(path: str) -> str:
@@ -39,49 +168,39 @@ def _extract_text_from_docx(path: str) -> str:
 
 
 def _create_pdf_from_text(text: str, output_path: str) -> str:
-    """Create a minimal, valid single-page PDF containing *text*.
+    """Create a minimal PDF from plain text (fallback when LibreOffice unavailable).
 
-    Uses raw PDF stream construction so we have zero extra dependencies
-    beyond the standard library.  The text is encoded in Latin-1; any
-    characters outside that range are replaced with '?'.
+    Uses raw PDF stream construction — no formatting preserved.
     """
-    # Escape special PDF characters in the text
     safe_text = (
         text.replace("\\", "\\\\")
             .replace("(", "\\(")
             .replace(")", "\\)")
     )
 
-    # Split into lines and paginate (approx 60 lines per page at 12pt)
     lines = safe_text.split("\n")
     max_lines_per_page = 60
     pages_content: list[str] = []
 
     for i in range(0, len(lines), max_lines_per_page):
         page_lines = lines[i : i + max_lines_per_page]
-        # Build the text-drawing operators for this page
-        y = 750  # starting Y position
+        y = 750
         text_ops: list[str] = []
         for line in page_lines:
             text_ops.append(f"BT /F1 10 Tf 50 {y} Td ({line}) Tj ET")
             y -= 12
         pages_content.append("\n".join(text_ops))
 
-    # Build the PDF object tree
     objects: list[str] = []
-    # Object 1 – Catalog
     objects.append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj")
-    # Object 2 – Pages (built after we know page count)
     page_obj_numbers: list[int] = []
-    obj_counter = 4  # 1=catalog, 2=pages, 3=font
+    obj_counter = 4
 
-    # Object 3 – Font
     objects.append(
         "3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj"
     )
 
     for content in pages_content:
-        # Stream object for page content
         stream_obj = obj_counter
         stream_bytes = content.encode("latin-1", errors="replace")
         objects.append(
@@ -91,7 +210,6 @@ def _create_pdf_from_text(text: str, output_path: str) -> str:
         )
         obj_counter += 1
 
-        # Page object
         page_obj = obj_counter
         page_obj_numbers.append(page_obj)
         objects.append(
@@ -104,33 +222,28 @@ def _create_pdf_from_text(text: str, output_path: str) -> str:
         )
         obj_counter += 1
 
-    # Now build object 2 (Pages)
     kids = " ".join(f"{n} 0 R" for n in page_obj_numbers)
     pages_obj = (
         f"2 0 obj\n<< /Type /Pages /Kids [{kids}] "
         f"/Count {len(page_obj_numbers)} >>\nendobj"
     )
-    # Insert pages object at position 1 (after catalog)
     objects.insert(1, pages_obj)
 
-    # Assemble the full PDF
     pdf_lines: list[str] = ["%PDF-1.4"]
     offsets: list[int] = []
-    current_offset = len(pdf_lines[0]) + 1  # +1 for newline
+    current_offset = len(pdf_lines[0]) + 1
 
     for obj_str in objects:
         offsets.append(current_offset)
         pdf_lines.append(obj_str)
         current_offset += len(obj_str.encode("latin-1", errors="replace")) + 1
 
-    # Cross-reference table
     xref_offset = current_offset
     xref_lines = [f"xref\n0 {len(offsets) + 1}", "0000000000 65535 f "]
     for off in offsets:
         xref_lines.append(f"{off:010d} 00000 n ")
     pdf_lines.append("\n".join(xref_lines))
 
-    # Trailer
     pdf_lines.append(
         f"trailer\n<< /Size {len(offsets) + 1} /Root 1 0 R >>\n"
         f"startxref\n{xref_offset}\n%%EOF"
@@ -163,6 +276,12 @@ def convert_document(
 ) -> str:
     """Convert a document from *source_ext* to *target_ext*.
 
+    Strategy:
+    1. If LibreOffice is available → use it for maximum fidelity
+       (preserves fonts, images, tables, colors, layout).
+    2. Otherwise → fall back to pure-Python text extraction
+       (formatting will be lost).
+
     Supported routes:
     - PDF  → TXT / DOCX
     - DOCX → TXT / PDF
@@ -171,46 +290,69 @@ def convert_document(
     - CSV  → XLSX / PDF
 
     Returns *output_path* on success.
-
     Raises ``ValueError`` for unsupported conversion pairs.
     """
     src = source_ext.lower().lstrip(".")
     tgt = target_ext.lower().lstrip(".")
 
-    # ---- PDF source ------------------------------------------------------
+    # ---- Try LibreOffice first (high fidelity) --------------------------
+    # Use LibreOffice for all conversions EXCEPT plain text output
+    # (text extraction is fine with Python) and CSV↔XLSX (openpyxl is great)
+    libreoffice_routes = {
+        ("pdf", "docx"), ("docx", "pdf"),
+        ("pdf", "doc"), ("doc", "pdf"),
+        ("xlsx", "pdf"), ("docx", "xlsx"),
+        ("xlsx", "docx"),
+    }
+
+    if (src, tgt) in libreoffice_routes and _is_libreoffice_available():
+        return _convert_with_libreoffice(input_path, output_path, tgt)
+
+    # ---- Pure-Python fallback routes ------------------------------------
+
+    # PDF → TXT
     if src == "pdf" and tgt == "txt":
         text = _extract_text_from_pdf(input_path)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(text)
         return output_path
 
+    # PDF → DOCX (without LibreOffice)
     if src == "pdf" and tgt == "docx":
+        if _is_libreoffice_available():
+            return _convert_with_libreoffice(input_path, output_path, tgt)
         text = _extract_text_from_pdf(input_path)
         return _create_docx_from_text(text, output_path)
 
-    # ---- DOCX source -----------------------------------------------------
+    # DOCX → TXT
     if src == "docx" and tgt == "txt":
         text = _extract_text_from_docx(input_path)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(text)
         return output_path
 
+    # DOCX → PDF (without LibreOffice — text-based fallback)
     if src == "docx" and tgt == "pdf":
+        if _is_libreoffice_available():
+            return _convert_with_libreoffice(input_path, output_path, tgt)
         text = _extract_text_from_docx(input_path)
         return _create_pdf_from_text(text, output_path)
 
-    # ---- TXT source ------------------------------------------------------
+    # TXT → PDF
     if src == "txt" and tgt == "pdf":
+        if _is_libreoffice_available():
+            return _convert_with_libreoffice(input_path, output_path, tgt)
         with open(input_path, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
         return _create_pdf_from_text(text, output_path)
 
+    # TXT → DOCX
     if src == "txt" and tgt == "docx":
         with open(input_path, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
         return _create_docx_from_text(text, output_path)
 
-    # ---- XLSX source -----------------------------------------------------
+    # XLSX → CSV
     if src == "xlsx" and tgt == "csv":
         wb = load_workbook(input_path, read_only=True, data_only=True)
         ws = wb.active
@@ -221,7 +363,10 @@ def convert_document(
         wb.close()
         return output_path
 
+    # XLSX → PDF
     if src == "xlsx" and tgt == "pdf":
+        if _is_libreoffice_available():
+            return _convert_with_libreoffice(input_path, output_path, tgt)
         wb = load_workbook(input_path, read_only=True, data_only=True)
         ws = wb.active
         lines: list[str] = []
@@ -230,7 +375,7 @@ def convert_document(
         wb.close()
         return _create_pdf_from_text("\n".join(lines), output_path)
 
-    # ---- CSV source ------------------------------------------------------
+    # CSV → XLSX
     if src == "csv" and tgt == "xlsx":
         wb = Workbook()
         ws = wb.active
@@ -242,7 +387,10 @@ def convert_document(
         wb.save(output_path)
         return output_path
 
+    # CSV → PDF
     if src == "csv" and tgt == "pdf":
+        if _is_libreoffice_available():
+            return _convert_with_libreoffice(input_path, output_path, tgt)
         with open(input_path, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
         return _create_pdf_from_text(text, output_path)
@@ -266,7 +414,6 @@ def compress_document(input_path: str, output_path: str) -> str:
         writer = PdfWriter()
         for page in reader.pages:
             writer.add_page(page)
-        # Remove unused objects to shrink the file
         writer.remove_links()  # strips link annotations
         with open(output_path, "wb") as f:
             writer.write(f)
@@ -274,7 +421,6 @@ def compress_document(input_path: str, output_path: str) -> str:
 
     # For non-PDF documents, zip-compress the file
     base_name = os.path.basename(input_path)
-    # Ensure output has .zip extension for generic compression
     if not output_path.endswith(".zip"):
         output_path = output_path + ".zip"
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:

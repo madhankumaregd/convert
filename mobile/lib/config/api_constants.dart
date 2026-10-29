@@ -4,7 +4,14 @@ class ApiConstants {
   static const String _prefKeyBaseUrl = 'convert_backend_url';
 
   /// Production cloud backend deployed on Vercel (without trailing /api)
-  static const String productionBaseUrl = 'https://convert-ten-rho.vercel.app';
+  static const String vercelBaseUrl = 'https://convert-ten-rho.vercel.app';
+
+  /// Render.com backend URL (will be updated after deployment)
+  /// Render supports Docker → LibreOffice + FFmpeg for high-quality conversions
+  static const String renderBaseUrl = 'https://convert-api-xxxx.onrender.com';
+
+  /// Default URL — change this after deploying to Render for best quality
+  static const String productionBaseUrl = vercelBaseUrl;
 
   /// Normalizes any user-entered or default URL to strip trailing slashes or /api
   static String normalizeBaseUrl(String url) {
@@ -18,7 +25,7 @@ class ApiConstants {
     return trimmed;
   }
 
-  /// Default URL automatically configured to the production Vercel backend
+  /// Default URL automatically configured to the production backend
   static String get defaultBaseUrl => productionBaseUrl;
 
   /// Get currently configured base URL (with auto-migration from local emulator IPs)

@@ -5,7 +5,7 @@ import 'storage_service.dart';
 
 class ApiService {
   final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 30),
+    connectTimeout: const Duration(seconds: 15),
     receiveTimeout: const Duration(minutes: 5),
     sendTimeout: const Duration(minutes: 5),
   ));
@@ -17,14 +17,35 @@ class ApiService {
     return _dio;
   }
 
-  /// Check if the backend API is reachable
+  /// Check if the backend API is reachable using the lightweight /api/health endpoint.
+  /// Falls back to /api/formats if /api/health is not available.
   Future<bool> checkHealth() async {
     try {
       final client = await _getClient();
-      final res = await client.get('/api/formats');
+      // Use a short timeout for health checks specifically
+      final res = await client.get(
+        '/api/health',
+        options: Options(
+          receiveTimeout: const Duration(seconds: 10),
+          sendTimeout: const Duration(seconds: 5),
+        ),
+      );
       return res.statusCode == 200;
     } catch (_) {
-      return false;
+      // Fallback: try /api/formats
+      try {
+        final client = await _getClient();
+        final res = await client.get(
+          '/api/formats',
+          options: Options(
+            receiveTimeout: const Duration(seconds: 10),
+            sendTimeout: const Duration(seconds: 5),
+          ),
+        );
+        return res.statusCode == 200;
+      } catch (_) {
+        return false;
+      }
     }
   }
 
@@ -51,13 +72,11 @@ class ApiService {
       ),
       onSendProgress: (sent, total) {
         if (total > 0 && onProgress != null) {
-          // Send progress is 0.0 to 0.7
           onProgress((sent / total) * 0.7);
         }
       },
       onReceiveProgress: (received, total) {
         if (total > 0 && onProgress != null) {
-          // Receive progress is 0.7 to 1.0
           onProgress(0.7 + (received / total) * 0.3);
         }
       },

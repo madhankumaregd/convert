@@ -36,7 +36,7 @@ class HeaderWidget extends StatelessWidget {
                   ),
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: [
-                    BoxBar(
+                    BoxShadow(
                       color: AppTheme.primaryColor.withValues(alpha: 0.35),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
@@ -70,23 +70,38 @@ class HeaderWidget extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(vertical: 2.0),
                       child: Row(
                         children: [
-                          Container(
+                          // Animated status indicator
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 400),
                             width: 8,
                             height: 8,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: isServerOnline ? AppTheme.emeraldSuccess : AppTheme.roseError,
+                              boxShadow: isServerOnline
+                                  ? [
+                                      BoxShadow(
+                                        color: AppTheme.emeraldSuccess.withValues(alpha: 0.5),
+                                        blurRadius: 6,
+                                        spreadRadius: 1,
+                                      ),
+                                    ]
+                                  : null,
                             ),
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            isServerOnline ? 'Cloud Backend Online' : 'Connecting...',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: isServerOnline
-                                  ? AppTheme.emeraldSuccess
-                                  : AppTheme.roseError,
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 300),
+                            child: Text(
+                              isServerOnline ? 'Cloud Backend Online' : 'Connecting...',
+                              key: ValueKey(isServerOnline),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: isServerOnline
+                                    ? AppTheme.emeraldSuccess
+                                    : AppTheme.roseError,
+                              ),
                             ),
                           ),
                         ],
@@ -128,13 +143,4 @@ class HeaderWidget extends StatelessWidget {
       ),
     );
   }
-}
-
-class BoxBar extends BoxShadow {
-  const BoxBar({
-    super.color,
-    super.offset,
-    super.blurRadius,
-    super.spreadRadius,
-  });
 }

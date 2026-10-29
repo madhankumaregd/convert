@@ -65,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onFilesSelected(List<FileItem> incoming) {
     setState(() {
       _files.addAll(incoming);
-      _selectedFormat = null; // Reset format to force re-evaluation of compatibility
+      _selectedFormat = null;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -88,6 +88,23 @@ class _HomeScreenState extends State<HomeScreen> {
       _files.clear();
       _selectedFormat = null;
     });
+  }
+
+  /// Scroll to the results section after processing completes
+  void _scrollToResults() {
+    // Use multiple delayed attempts to ensure scroll works after layout
+    for (final delay in [300, 600, 1000]) {
+      Future.delayed(Duration(milliseconds: delay), () {
+        if (!mounted || !_scrollController.hasClients) return;
+
+        // Scroll to the bottom where results are
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOutCubic,
+        );
+      });
+    }
   }
 
   Future<void> _startProcessing() async {
@@ -176,25 +193,19 @@ class _HomeScreenState extends State<HomeScreen> {
           SnackBar(
             content: Text(
               _mode == AppMode.convert
-                  ? 'Conversion finished! Scroll down to download.'
-                  : 'Compression finished! Scroll down to download.',
+                  ? '✅ Conversion finished! $successCount file${successCount > 1 ? 's' : ''} ready to download.'
+                  : '✅ Compression finished! $successCount file${successCount > 1 ? 's' : ''} ready to download.',
             ),
             backgroundColor: AppTheme.emeraldSuccess,
             duration: const Duration(seconds: 4),
           ),
         );
 
-        // Smoothly auto-scroll to the bottom so the results and download buttons are in view!
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (_scrollController.hasClients) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeOutCubic,
-            );
-          }
-        });
-      } else if (failedCount > 0) {
+        // Scroll to results section
+        _scrollToResults();
+      }
+
+      if (failedCount > 0 && successCount == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(lastErrorMessage.isNotEmpty ? lastErrorMessage : 'Failed to process file.'),
@@ -410,9 +421,39 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
 
-                      // Results Sheet with Download & Open Actions
+                      // ===== RESULTS SECTION (Download & Open Actions) =====
                       if (_results.isNotEmpty) ...[
                         const SizedBox(height: 24),
+
+                        // Title for results section (easier to find)
+                        Container(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.emeraldSuccess.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.download_done_rounded,
+                                  color: AppTheme.emeraldSuccess,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Ready to Download (${_results.length})',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
                         ResultsSheet(
                           results: _results,
                           onClear: () {

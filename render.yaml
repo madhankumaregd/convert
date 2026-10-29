@@ -1,0 +1,16 @@
+# Render.com deployment configuration
+# Deploy this as a Docker Web Service
+# See: https://docs.render.com/deploy-a-docker-image
+
+services:
+  - type: web
+    name: convert-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+

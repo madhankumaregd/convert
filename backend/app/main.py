@@ -91,6 +91,7 @@ async def root():
         "status": "running",
         "docs": "/docs",
         "endpoints": {
+            "health":         "GET  /api/health",
             "formats":        "GET  /api/formats",
             "convert":        "POST /api/convert",
             "convert_batch":  "POST /api/convert/batch",
@@ -98,6 +99,19 @@ async def root():
             "compress_batch": "POST /api/compress/batch",
             "cleanup":        "POST /api/cleanup",
         },
+    }
+
+
+@app.get("/api/health")
+async def health_check():
+    """Lightweight health-check endpoint for mobile/web clients.
+
+    Returns a tiny JSON payload so health pings are fast and cheap.
+    """
+    from .services.document_service import _is_libreoffice_available
+    return {
+        "status": "ok",
+        "libreoffice": _is_libreoffice_available(),
     }
 
 
