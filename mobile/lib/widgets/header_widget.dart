@@ -63,28 +63,35 @@ class HeaderWidget extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Row(
-                    children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isServerOnline ? AppTheme.emeraldSuccess : AppTheme.roseError,
-                        ),
+                  InkWell(
+                    onTap: onRefreshServer,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2.0),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isServerOnline ? AppTheme.emeraldSuccess : AppTheme.roseError,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isServerOnline ? 'Cloud Backend Online' : 'Connecting...',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isServerOnline
+                                  ? AppTheme.emeraldSuccess
+                                  : AppTheme.roseError,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 5),
-                      Text(
-                        isServerOnline ? 'Backend Online' : 'Connecting...',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: isServerOnline
-                              ? AppTheme.emeraldSuccess
-                              : (isDarkMode ? Colors.grey[400] : Colors.grey[600]),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),
@@ -131,4 +138,3 @@ class BoxBar extends BoxShadow {
     super.spreadRadius,
   });
 }
-

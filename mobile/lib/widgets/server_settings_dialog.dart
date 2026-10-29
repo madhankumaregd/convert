@@ -58,7 +58,7 @@ class _ServerSettingsDialogState extends State<ServerSettingsDialog> {
                   controller: _controller,
                   decoration: InputDecoration(
                     labelText: 'API Base URL',
-                    hintText: 'e.g. http://10.0.2.2:8000/api',
+                    hintText: 'e.g. https://convert-ten-rho.vercel.app',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     prefixIcon: const Icon(Icons.link_rounded),
                   ),
@@ -66,17 +66,25 @@ class _ServerSettingsDialogState extends State<ServerSettingsDialog> {
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
+                  runSpacing: 8,
                   children: [
+                    ActionChip(
+                      avatar: const Icon(Icons.cloud_done_rounded, size: 14),
+                      label: const Text('Cloud (Vercel)'),
+                      onPressed: () {
+                        _controller.text = ApiConstants.productionBaseUrl;
+                      },
+                    ),
                     ActionChip(
                       label: const Text('Emulator (10.0.2.2)'),
                       onPressed: () {
-                        _controller.text = 'http://10.0.2.2:8000/api';
+                        _controller.text = 'http://10.0.2.2:8000';
                       },
                     ),
                     ActionChip(
                       label: const Text('Localhost'),
                       onPressed: () {
-                        _controller.text = 'http://localhost:8000/api';
+                        _controller.text = 'http://localhost:8000';
                       },
                     ),
                   ],
@@ -103,4 +111,3 @@ class _ServerSettingsDialogState extends State<ServerSettingsDialog> {
     );
   }
 }
-

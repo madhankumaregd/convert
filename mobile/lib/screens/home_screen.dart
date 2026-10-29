@@ -30,6 +30,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
+  final ScrollController _scrollController = ScrollController();
   final List<FileItem> _files = [];
   final List<ConversionResult> _results = [];
 
@@ -50,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _healthTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -100,6 +102,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _isProcessing = true);
 
+    int successCount = 0;
+    int failedCount = 0;
+    String lastErrorMessage = '';
+
     for (final file in _files) {
       setState(() {
         file.status = FileStatus.uploading;
@@ -147,25 +153,56 @@ class _HomeScreenState extends State<HomeScreen> {
           file.progress = 1.0;
           _results.insert(0, result);
         });
+        successCount++;
       } catch (e) {
+        final errStr = e.toString();
+        lastErrorMessage = errStr.contains('Failed host lookup') || errStr.contains('Connection refused')
+            ? 'Cannot reach cloud server. Tap the server settings icon in the header.'
+            : 'Processing error: ${errStr.split('\n').first}';
+
         setState(() {
           file.status = FileStatus.error;
-          file.error = e.toString().contains('Failed host lookup') || e.toString().contains('Connection refused')
-              ? 'Cannot connect to backend server. Tap the server settings icon in the header.'
-              : 'Transformation failed: ${e.toString().split('\n').first}';
+          file.error = lastErrorMessage;
         });
+        failedCount++;
       }
     }
 
     setState(() => _isProcessing = false);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_mode == AppMode.convert ? 'Conversion finished!' : 'Compression finished!'),
-          backgroundColor: AppTheme.emeraldSuccess,
-        ),
-      );
+      if (successCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _mode == AppMode.convert
+                  ? 'Conversion finished! Scroll down to download.'
+                  : 'Compression finished! Scroll down to download.',
+            ),
+            backgroundColor: AppTheme.emeraldSuccess,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+
+        // Smoothly auto-scroll to the bottom so the results and download buttons are in view!
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        });
+      } else if (failedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(lastErrorMessage.isNotEmpty ? lastErrorMessage : 'Failed to process file.'),
+            backgroundColor: AppTheme.roseError,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 
@@ -182,6 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: RefreshIndicator(
           onRefresh: _checkServerStatus,
           child: SingleChildScrollView(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.only(bottom: 32),
             child: Column(
@@ -345,19 +383,25 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
 
-                      // In-Flight Progress Bars
-                      if (_files.any((f) => f.status == FileStatus.uploading || f.status == FileStatus.processing)) ...[
+                      // In-Flight or Errored Progress Bars
+                      if (_files.any((f) =>
+                          f.status == FileStatus.uploading ||
+                          f.status == FileStatus.processing ||
+                          f.status == FileStatus.error)) ...[
                         const SizedBox(height: 20),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
-                              'Processing',
+                              'Status',
                               style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 8),
                             ..._files
-                                .where((f) => f.status == FileStatus.uploading || f.status == FileStatus.processing)
+                                .where((f) =>
+                                    f.status == FileStatus.uploading ||
+                                    f.status == FileStatus.processing ||
+                                    f.status == FileStatus.error)
                                 .map((f) => Padding(
                                       padding: const EdgeInsets.only(bottom: 8.0),
                                       child: ProgressCard(file: f),
@@ -366,7 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
 
-                      // Results Sheet
+                      // Results Sheet with Download & Open Actions
                       if (_results.isNotEmpty) ...[
                         const SizedBox(height: 24),
                         ResultsSheet(
@@ -387,4 +431,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-

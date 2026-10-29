@@ -11,8 +11,9 @@ class ApiService {
   ));
 
   Future<Dio> _getClient() async {
-    final baseUrl = await ApiConstants.getBaseUrl();
-    _dio.options.baseUrl = baseUrl;
+    final rawBaseUrl = await ApiConstants.getBaseUrl();
+    final normalized = ApiConstants.normalizeBaseUrl(rawBaseUrl);
+    _dio.options.baseUrl = normalized;
     return _dio;
   }
 
@@ -20,7 +21,7 @@ class ApiService {
   Future<bool> checkHealth() async {
     try {
       final client = await _getClient();
-      final res = await client.get('/formats');
+      final res = await client.get('/api/formats');
       return res.statusCode == 200;
     } catch (_) {
       return false;
@@ -43,7 +44,7 @@ class ApiService {
     });
 
     final response = await client.post(
-      '/convert',
+      '/api/convert',
       data: formData,
       options: Options(
         responseType: ResponseType.bytes,
@@ -109,7 +110,7 @@ class ApiService {
     });
 
     final response = await client.post(
-      '/compress',
+      '/api/compress',
       data: formData,
       options: Options(
         responseType: ResponseType.bytes,
@@ -165,4 +166,3 @@ class ApiService {
     );
   }
 }
-
