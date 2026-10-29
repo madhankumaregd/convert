@@ -1,21 +1,13 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiConstants {
   static const String _prefKeyBaseUrl = 'convert_backend_url';
 
-  /// Default URL automatically configured based on platform
-  static String get defaultBaseUrl {
-    if (kIsWeb) {
-      return 'http://localhost:8000/api';
-    } else if (Platform.isAndroid) {
-      // 10.0.2.2 is the Android emulator's loopback to host PC localhost
-      return 'http://10.0.2.2:8000/api';
-    } else {
-      return 'http://localhost:8000/api';
-    }
-  }
+  /// Production cloud backend deployed on Vercel
+  static const String productionBaseUrl = 'https://convert-ten-rho.vercel.app/api';
+
+  /// Default URL automatically configured to the production Vercel backend
+  static String get defaultBaseUrl => productionBaseUrl;
 
   /// Get currently configured base URL (or fallback to default)
   static Future<String> getBaseUrl() async {
@@ -35,4 +27,3 @@ class ApiConstants {
     await prefs.remove(_prefKeyBaseUrl);
   }
 }
-

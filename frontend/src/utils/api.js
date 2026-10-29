@@ -9,7 +9,7 @@ import axios from "axios";
 
 /** Shared Axios instance pointing at the FastAPI backend. */
 const client = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "/api",
+  baseURL: import.meta.env.VITE_API_URL || "https://convert-ten-rho.vercel.app/api",
 });
 
 /* ------------------------------------------------------------------ */
